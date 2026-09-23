@@ -1,0 +1,118 @@
+name: CI
+
+env:
+  SONAR_SCANNER_VERSION: 5.0.1.3006
+
+on:
+  push:
+    branches:
+      - "*"
+    paths-ignore:
+      - "src/test/java/**"
+      - "target/**"
+
+  pull_request:
+    branches:
+      - "*"
+    paths-ignore:
+      - "src/test/java/**"
+      - "target/**"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache files
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      # --------------------------------
+      # CodeScan Analysis - Push
+      # --------------------------------
+
+      - name: Run CodeScan On Push
+        if: github.event_name == 'push'
+        uses: codescan-io/codescan-scanner-action@cd9694sarif1
+        with:
+          scanChangedFilesOnly: true
+          organization: va-github-actions
+          projectKey: sep-23-15pfs
+          codeScanUrl: https://preview.codescan.io/
+          login: squ_bb693d11c55bd32bd9d9d518884516edbf29f680
+
+          # Enable SARIF generation
+          generateSarifFile: true
+
+      # --------------------------------
+      # CodeScan Analysis - Pull Request
+      # --------------------------------
+
+      - name: Run CodeScan On PR
+        if: github.event_name == 'pull_request'
+        uses: codescan-io/codescan-scanner-action@cd9694sarif1
+        with:
+          scanChangedFilesOnly: true
+          organization: va-github-actions
+          projectKey: sep-23-15pfs
+          codeScanUrl: https://preview.codescan.io/
+          login: squ_bb693d11c55bd32bd9d9d518884516edbf29f680
+
+          # Enable SARIF generation
+          generateSarifFile: true
+
+          args: |
+            sonar.pullrequest.branch=${{ github.head_ref }}
+            sonar.pullrequest.base=${{ github.base_ref }}
+            sonar.pullrequest.key=${{ github.event.number }}
+      # --------------------------------
+      # Verify SARIF File
+      # --------------------------------
+
+      - name: Verify SARIF file
+        shell: bash
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Files generated after CodeScan analysis:"
+          find . -maxdepth 4 -type f | sort
+          echo ""
+          echo "Checking for SARIF files..."
+          find . -type f \( -name "*.sarif" -o -name "*.sarif.json" \) -print
+          if [ -f "codescan.sarif" ]; then
+            echo "SARIF file found: codescan.sarif"
+            ls -lh codescan.sarif
+          else
+            echo "ERROR: codescan.sarif was not generated"
+            exit 1
+          fi
+      # --------------------------------
+      # Upload SARIF to GitHub
+      # --------------------------------
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: codescan.sarif
+
+      # --------------------------------
+      # Archive SARIF File
+      # --------------------------------
+
+      - name: Archive CodeScan SARIF results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codescan-sarif-${{ github.run_number }}
+          path: codescan.sarif
+          if-no-files-found: warn
